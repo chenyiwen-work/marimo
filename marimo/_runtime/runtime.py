@@ -2106,6 +2106,9 @@ class Kernel:
 
         self.load_dotenv()
 
+        # Load external datasources (e.g., tier0_s3tables) for sidebar display
+        self._load_external_datasources()
+
         if self.graph.cells:
             del request
             LOGGER.info("App is already instantiated, skipping instantiation.")
@@ -2221,6 +2224,45 @@ class Kernel:
                     LOGGER.error(
                         "Failed to load dotenv file %s", env, exc_info=e
                     )
+
+    def _load_external_datasources(self) -> None:
+        """Load external pre-configured datasources (e.g., tier0_s3tables).
+
+        This method attempts to load external datasource modules and inject
+        their connections into the kernel's global namespace. The connections
+        are also broadcast to the frontend sidebar for display.
+
+        Currently supports:
+        - tier0_s3tables: S3 Tables connection for Tier0 platform
+        """
+        try:
+            # Try to import tier0_s3tables module
+            from tier0_s3tables import s3conn
+
+            # Inject into global namespace so users can use it directly
+            self.globals['s3conn'] = s3conn
+
+            # Detect and broadcast to frontend sidebar
+            engines = get_engines_from_variables([
+                (VariableName('s3conn'), s3conn)
+            ])
+
+            if engines:
+                LOGGER.info("Loading external datasource: s3conn (tier0_s3tables)")
+                broadcast_notification(
+                    DataSourceConnectionsNotification(
+                        connections=[
+                            engine_to_data_source_connection(variable, engine)
+                            for variable, engine in engines
+                        ]
+                    )
+                )
+
+        except ImportError:
+            # tier0_s3tables module not available, this is normal
+            pass
+        except Exception as e:
+            LOGGER.debug(f"External datasource loading failed: {e}")
 
     @cached_property
     def request_handler(self) -> RequestHandler:
